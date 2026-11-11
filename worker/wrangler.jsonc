@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rig-pulse",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-10",
+  "observability": { "enabled": true },
+  // Local only (`pnpm dev`). Not 8787: the rig app itself serves there (PORT in .env).
+  "dev": { "port": 8799 },
+  // Not secrets. The secrets (PING_KEY, OPENAI_API_KEY) live in the host: `wrangler secret put`,
+  // and in .dev.vars locally (git-ignored).
+  "vars": {
+    "OWNER_CODE": "own-f966251ba4d9af16",
+    "COURSE_URL": "https://hq.mega.dev"
+  }
+}
