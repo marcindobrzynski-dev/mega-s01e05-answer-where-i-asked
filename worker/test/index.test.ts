@@ -76,8 +76,28 @@ interface SeenRequest {
   body: unknown;
 }
 
-/** Replaces the global `fetch`: tracker → the issue, model → the test, reply address → 202. */
-function stubNetwork(opts: { tracker?: 'throws' } = {}): SeenRequest[] {
+/** The host's context, made up: `kept` is every promise the handler gave to `waitUntil`. */
+function hostCtx(): { ctx: ExecutionContext; kept: Promise<unknown>[] } {
+  const kept: Promise<unknown>[] = [];
+  const ctx = {
+    waitUntil: (promise: Promise<unknown>) => void kept.push(promise),
+    passThroughOnException: () => {},
+    props: {},
+  } as unknown as ExecutionContext;
+  return { ctx, kept };
+}
+
+/** For the tests that do not look at `waitUntil`. */
+const ctx = hostCtx().ctx;
+
+/** What the model picks for a pulse ping in these tests. */
+const PULSE_PICK = { issue: 12, recommendation: 'Reproduce the missing row first.' };
+
+/**
+ * Replaces the global `fetch`: tracker → the issue (or the list, for a pulse), model → the test
+ * (or `opts.model`), reply address → 202, after `opts.holdReply` when given.
+ */
+function stubNetwork(opts: { tracker?: 'throws'; model?: unknown; holdReply?: Promise<void> } = {}): SeenRequest[] {
   const seen: SeenRequest[] = [];
 
   vi.stubGlobal(
@@ -97,8 +117,12 @@ function stubNetwork(opts: { tracker?: 'throws' } = {}): SeenRequest[] {
         if (opts.tracker === 'throws') throw new TypeError('fetch failed');
         return Response.json(trackerIssue);
       }
-      if (url === RESPONSES_URL && method === 'POST') return Response.json(modelResponse(TEST_ANSWER));
-      if (url === testPing.reply && method === 'POST') return new Response(null, { status: 202 });
+      if (url === pulse.tracker && method === 'GET') return Response.json({ issues: [trackerIssue] });
+      if (url === RESPONSES_URL && method === 'POST') return Response.json(modelResponse(opts.model ?? TEST_ANSWER));
+      if (url === testPing.reply && method === 'POST') {
+        await opts.holdReply;
+        return new Response(null, { status: 202 });
+      }
 
       return new Response('not here', { status: 404 });
     }),
@@ -120,7 +144,7 @@ function signed(body: unknown, over: { timestamp?: number; key?: Buffer } = {}):
 
 describe('the agents file', () => {
   it('names the owner and what each agent may do, nothing more', async () => {
-    const res = await worker.fetch(new Request('https://host.test/.well-known/mega-pulse.json'), env);
+    const res = await worker.fetch(new Request('https://host.test/.well-known/mega-pulse.json'), env, ctx);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
     expect(await res.json()).toEqual({
@@ -140,32 +164,32 @@ describe('the agents file', () => {
 
 describe('POST /', () => {
   it('401s a ping with a wrong signature', async () => {
-    const res = await worker.fetch(signed(pulse, { key: Buffer.from('some other key, not the right one') }), env);
+    const res = await worker.fetch(signed(pulse, { key: Buffer.from('some other key, not the right one') }), env, ctx);
     expect(res.status).toBe(401);
   });
 
   it('401s a ping older than 5 minutes', async () => {
-    const res = await worker.fetch(signed(pulse, { timestamp: Math.floor(Date.now() / 1000) - 400 }), env);
+    const res = await worker.fetch(signed(pulse, { timestamp: Math.floor(Date.now() / 1000) - 400 }), env, ctx);
     expect(res.status).toBe(401);
   });
 
   it('401s a ping with no signature headers', async () => {
-    const res = await worker.fetch(new Request('https://host.test/', { method: 'POST', body: '{}' }), env);
+    const res = await worker.fetch(new Request('https://host.test/', { method: 'POST', body: '{}' }), env, ctx);
     expect(res.status).toBe(401);
   });
 
   it('401s every ping when the host has no ping key', async () => {
-    const res = await worker.fetch(signed(pulse), { ...env, PING_KEY: undefined as unknown as string });
+    const res = await worker.fetch(signed(pulse), { ...env, PING_KEY: undefined as unknown as string }, ctx);
     expect(res.status).toBe(401);
   });
 
   it('400s a signed ping whose reply address is not the course', async () => {
-    const res = await worker.fetch(signed({ ...pulse, reply: 'https://elsewhere.test/reply' }), env);
+    const res = await worker.fetch(signed({ ...pulse, reply: 'https://elsewhere.test/reply' }), env, ctx);
     expect(res.status).toBe(400);
   });
 
   it('400s a signed ping of an unknown kind', async () => {
-    expect((await worker.fetch(signed({ ...pulse, kind: 'deploy' }), env)).status).toBe(400);
+    expect((await worker.fetch(signed({ ...pulse, kind: 'deploy' }), env, ctx)).status).toBe(400);
   });
 
   describe('a signed test ping', () => {
@@ -178,7 +202,7 @@ describe('POST /', () => {
       const seen = stubNetwork();
       const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      const res = await worker.fetch(signed(testPing), env);
+      const res = await worker.fetch(signed(testPing), env, ctx);
 
       expect(res.status).toBe(200);
       const body = await res.text();
@@ -205,7 +229,7 @@ describe('POST /', () => {
       const seen = stubNetwork({ tracker: 'throws' });
       const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      const res = await worker.fetch(signed(testPing), env);
+      const res = await worker.fetch(signed(testPing), env, ctx);
 
       expect(res.status).toBe(502);
       expect(seen.map((req) => `${req.method} ${req.url}`)).toEqual([`GET ${TRACKER_ISSUE}`]);
@@ -214,9 +238,60 @@ describe('POST /', () => {
     });
   });
 
+  // The course may hang up before the work ends, and the host then cancels what `waitUntil` was
+  // not given. So the promise the host keeps must hold the whole work: the POST to the reply
+  // address and the log lines, not only the model call.
+  describe('the work the host keeps alive', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      { kind: 'pulse', ping: pulse, model: PULSE_PICK, logLines: 1 },
+      { kind: 'test', ping: testPing, model: TEST_ANSWER, logLines: 2 },
+    ])('gives the whole work of a $kind ping to waitUntil: reply and log lines too', async ({ ping, model, logLines }) => {
+      let release!: () => void;
+      const holdReply = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const seen = stubNetwork({ model, holdReply });
+      const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const { ctx: host, kept } = hostCtx();
+
+      const response = worker.fetch(signed(ping), env, host);
+
+      // The work is now waiting for the reply address.
+      await vi.waitFor(() => expect(seen.at(-1)?.url).toBe(ping.reply));
+      expect(kept).toHaveLength(1);
+      let settled = false;
+      void kept[0]!.then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      expect(logged).not.toHaveBeenCalled();
+
+      release();
+      await kept[0];
+
+      expect(logged.mock.calls).toHaveLength(logLines);
+      expect((await response).status).toBe(200);
+    });
+
+    it('gives nothing to waitUntil for a ping it refuses', async () => {
+      const { ctx: host, kept } = hostCtx();
+
+      const res = await worker.fetch(signed(pulse, { key: Buffer.from('some other key, not the right one') }), env, host);
+
+      expect(res.status).toBe(401);
+      expect(kept).toHaveLength(0);
+    });
+  });
+
   it('404s other paths and 405s other methods', async () => {
-    expect((await worker.fetch(new Request('https://host.test/elsewhere'), env)).status).toBe(404);
-    expect((await worker.fetch(new Request('https://host.test/'), env)).status).toBe(405);
+    expect((await worker.fetch(new Request('https://host.test/elsewhere'), env, ctx)).status).toBe(404);
+    expect((await worker.fetch(new Request('https://host.test/'), env, ctx)).status).toBe(405);
   });
 });
 

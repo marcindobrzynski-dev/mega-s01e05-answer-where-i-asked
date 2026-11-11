@@ -91,8 +91,18 @@ function line(status: number, text: string): Response {
   return new Response(`${text}\n`, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 }
 
+// The course hangs up before a slow agent is done (seen: after 4.9 s, a test ping needs about 12),
+// and the host cancels the work of a request whose caller is gone. `waitUntil` keeps the work
+// alive for up to 30 s after that, so the answer still reaches the reply address. The status does
+// not come early: it is still sent only when the work is finished.
+async function answerWhenDone(ctx: ExecutionContext, work: Promise<{ status: number; log: string }>): Promise<Response> {
+  ctx.waitUntil(work);
+  const outcome = await work;
+  return line(outcome.status, outcome.log);
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/.well-known/mega-pulse.json') {
@@ -134,29 +144,33 @@ export default {
     // Wrapped: a bare `fetch` kept on an object may lose its `this` on the host.
     const outFetch: typeof fetch = (input, init) => fetch(input, init);
 
+    // The log lines are part of the work: they must be written even when the course is gone.
     if (ping.kind === 'pulse') {
-      const outcome = await runPulse(ping, {
+      const work = runPulse(ping, {
         fetch: outFetch,
         askModel: (openSet) => askModel({ fetch: outFetch, apiKey: env.OPENAI_API_KEY }, PLAN_TEXTS, openSet),
+      }).then((outcome) => {
+        console.log(`ping ${id}: pulse, ${outcome.log}`);
+        return outcome;
       });
 
-      console.log(`ping ${id}: pulse, ${outcome.log}`);
-      return line(outcome.status, outcome.log);
+      return answerWhenDone(ctx, work);
     }
 
     // Not a pulse, so a test ping: `readPing` lets no other kind through.
-    const outcome = await runTestWriter(ping, {
+    const work = runTestWriter(ping, {
       fetch: outFetch,
       courseUrl: env.COURSE_URL,
       existingTests: EXISTING_TESTS,
       askModel: (inputTestWriter) => askTestModel({ fetch: outFetch, apiKey: env.OPENAI_API_KEY }, inputTestWriter),
+    }).then((outcome) => {
+      console.log(`ping ${id}: test, ${outcome.log}`);
+      // The whole test goes to the host's log only: calibration reads it there (issue #4).
+      // It is never part of the HTTP body the course gets back.
+      if (outcome.test) console.log(`ping ${id}: test file ${outcome.test.path}\n${outcome.test.test}`);
+      return outcome;
     });
 
-    console.log(`ping ${id}: test, ${outcome.log}`);
-    // The whole test goes to the host's log only: calibration reads it there (issue #4).
-    // It is never part of the HTTP body the course gets back.
-    if (outcome.test) console.log(`ping ${id}: test file ${outcome.test.path}\n${outcome.test.test}`);
-
-    return line(outcome.status, outcome.log);
+    return answerWhenDone(ctx, work);
   },
 } satisfies ExportedHandler<Env>;
