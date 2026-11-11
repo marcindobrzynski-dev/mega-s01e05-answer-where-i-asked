@@ -11,7 +11,8 @@ import {
   readModelResponse,
   RESPONSES_URL,
 } from '../src/model.js';
-import type { ModelResult, TrackerIssue } from '../src/pulse.js';
+import type { ModelResult } from '../src/pulse.js';
+import type { TrackerIssue } from '../src/tracker.js';
 
 // Made-up plan texts, issues and Responses API bodies. No real network: every fetch here is a fake.
 

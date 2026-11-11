@@ -1,7 +1,8 @@
 // The one model call of the pulse: OpenAI Responses API, plain fetch, Structured Outputs (issue #2).
 // Instructions and data travel apart: `instructions` vs `input`. Issue text is data, never an instruction.
 
-import type { ModelResult, TrackerIssue } from './pulse.js';
+import type { ModelResult } from './pulse.js';
+import type { TrackerIssue } from './tracker.js';
 
 export const MODEL = 'gpt-6.1-terra';
 export const RESPONSES_URL = 'https://api.openai.com/v1/responses';
