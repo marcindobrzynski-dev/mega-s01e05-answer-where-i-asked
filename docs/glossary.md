@@ -32,3 +32,11 @@ _Avoid_: response, result, answer
 **Open set**:
 The issues the tracker shows as open at the moment one ping is handled. Read again for every ping.
 _Avoid_: open issues list, backlog
+
+**Base**:
+The files a test ping carries: the code as it is before the fix. The test writer's test must fail on it.
+_Avoid_: original, snapshot, old code
+
+**Try**:
+One model call made for one ping. The test writer has two at most.
+_Avoid_: attempt, retry, round
