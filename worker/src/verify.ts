@@ -5,7 +5,7 @@
 const KEY_PREFIX = 'whsec_';
 const MAX_AGE_SECONDS = 5 * 60;
 
-export interface PingToVerify {
+interface PingToVerify {
   /** `webhook-id` header */
   id: string | null;
   /** `webhook-timestamp` header: unix seconds */
@@ -19,7 +19,7 @@ export interface PingToVerify {
   nowSeconds: number;
 }
 
-export type Verified = { ok: true } | { ok: false; reason: string };
+type Verified = { ok: true } | { ok: false; reason: string };
 
 function fromBase64(text: string): Uint8Array<ArrayBuffer> | null {
   if (text === '') return null;
@@ -59,5 +59,6 @@ export async function verifyPing(ping: PingToVerify): Promise<Verified> {
     // subtle.verify compares in constant time; a string compare would not.
     if (await crypto.subtle.verify('HMAC', key, mac, signed)) return { ok: true };
   }
+  
   return { ok: false, reason: 'no signature matches' };
 }
