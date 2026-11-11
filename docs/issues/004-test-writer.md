@@ -1,10 +1,10 @@
 ---
 id: 4
 title: "Test writer: fill the stub, answer the test ping"
-state: open
+state: closed
 labels: []
 created: 2026-11-10T23:06:27+01:00
-closed: null
+closed: 2026-11-11T16:53:41+01:00
 ---
 
 plan: pulse §5. Rules: ADR 0006, `docs/agents/test-writer.md`.
@@ -68,3 +68,9 @@ Calibration (the Worker cannot run vitest, so `red` is the model's prediction):
 Blocked by: #1, #5 (for the local green run)
 
 Done when: locally, the test the agent writes for tracker issue #12 fails on the base and passes with the fix; on the host, a signed `test` ping gets one test file at its reply address (`202`).
+
+## Closing comment
+
+done: the test written for tracker issue #12 is red on the base and green with the fix; on the host the test ping's work outlives the course's hang-up (waitUntil) and the course accepted the test
+worker: Claude Code · claude-fable-5-2 with Opus and Sonnet subagents · default
+commit: 3c6ff44

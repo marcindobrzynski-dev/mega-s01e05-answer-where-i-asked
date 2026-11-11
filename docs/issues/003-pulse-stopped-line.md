@@ -1,10 +1,10 @@
 ---
 id: 3
 title: "Pulse: one line when a check fails"
-state: open
+state: closed
 labels: []
 created: 2026-11-10T23:06:27+01:00
-closed: null
+closed: 2026-11-11T16:53:41+01:00
 ---
 
 plan: pulse §4.
@@ -19,3 +19,9 @@ Scope: the failure path of the `pulse` agent.
 Blocked by: #2
 
 Done when: each failed check (no phrase, no tracker, nothing open, bad model answer) leaves exactly one `pulse stopped: ...` line at the reply address.
+
+## Closing comment
+
+done: each failed check sends exactly one pulse stopped line to the reply address; shown by the worker tests, no real ping took this path
+worker: Claude Code · claude-fable-5-2 with Opus and Sonnet subagents · default
+commit: de08ccd

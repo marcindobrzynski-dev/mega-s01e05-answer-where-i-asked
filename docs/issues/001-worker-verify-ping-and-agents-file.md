@@ -1,10 +1,10 @@
 ---
 id: 1
 title: "Worker: verify the ping, serve /.well-known/mega-pulse.json"
-state: open
+state: closed
 labels: []
 created: 2026-11-10T23:06:27+01:00
-closed: null
+closed: 2026-11-11T16:53:41+01:00
 ---
 
 plan: pulse §1.
@@ -20,3 +20,9 @@ Scope: a Cloudflare Worker (free plan) with one public https address.
 Blocked by: —
 
 Done when: a ping with a wrong signature or an old timestamp gets `401` and wakes nothing; the agents file returns the owner code and the two `may` lists above.
+
+## Closing comment
+
+done: the Worker rig-pulse answers 401 to a wrong signature or an old ping and serves the agents file with the owner code and both may lists; seen on the host
+worker: Claude Code · claude-fable-5-2 · default
+commit: d70eb2b

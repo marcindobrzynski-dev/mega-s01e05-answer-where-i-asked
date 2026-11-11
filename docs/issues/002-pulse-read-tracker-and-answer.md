@@ -1,10 +1,10 @@
 ---
 id: 2
 title: "Pulse: read the tracker live, answer to the reply address"
-state: open
+state: closed
 labels: []
 created: 2026-11-10T23:06:27+01:00
-closed: null
+closed: 2026-11-11T16:53:41+01:00
 ---
 
 plan: pulse §2, §3.
@@ -28,3 +28,9 @@ Scope: the `pulse` agent in the Worker. Model: `gpt-6.1-terra` through the OpenA
 Blocked by: #1
 
 Done when: a signed `pulse` ping gets one answer at its reply address (`202`) with the phrase, an open `#N` and a recommendation, and nobody touched anything.
+
+## Closing comment
+
+done: a signed pulse ping from the course got one answer at its reply address (202) with the phrase, #12 and a recommendation; the agents change nothing on the tracker
+worker: Claude Code · claude-fable-5-2 with Opus and Sonnet subagents · default
+commit: 86a0457
