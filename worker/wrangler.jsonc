@@ -13,5 +13,6 @@
   "vars": {
     "OWNER_CODE": "own-f966251ba4d9af16",
     "COURSE_URL": "https://hq.mega.dev"
-  }
+  },
+  "preview_urls": false
 }
