@@ -11,7 +11,9 @@ plan: pulse §4.
 
 Scope: the failure path of the `pulse` agent.
 
-- No phrase in the ping, the tracker does not answer, nothing is open, or the model's answer fails the check in #2: answer `pulse stopped: <what failed>`, one line, to the reply address, and stop. No guess, no silence.
+- No phrase in the ping, the tracker does not answer (or answers in a wrong shape), nothing is open, the model's answer cannot be used (a refusal, an incomplete response, JSON off the schema), or it fails the check in #2: answer `pulse stopped: <what failed>`, one line, to the reply address, and stop. No guess, no silence.
+- The line says what failed, for example `pulse stopped: the answer names #9, which is not open`.
+- Not a stopped line: the model does not answer at all (network, timeout, `429`, `5xx`). That is `5xx` to the course (#2), so the one answer for the ping is not spent.
 - That line counts as finished work: `200` to the course.
 
 Blocked by: #2

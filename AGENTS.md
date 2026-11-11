@@ -32,8 +32,9 @@ Read first: `docs/vision.md`, `docs/styleguide.md`. Decisions: `docs/adr/`.
 
 ## Words
 
-- **Pulse**: one answer to Rook's ask: where the plan stands, one open issue that matters, one
-  recommendation.
+- **Pulse**: an agent a `pulse` request wakes on its host. It sends one answer to Rook's ask:
+  where the plan stands, one open issue that matters, one recommendation. More words:
+  `docs/glossary.md`.
 - **Test writer**: an agent a `test` request wakes on its host. It writes the test an open bug
   needs and sends it back. Its instructions: `docs/agents/test-writer.md`.
 
