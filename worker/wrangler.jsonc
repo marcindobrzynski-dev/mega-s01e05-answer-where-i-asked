@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-10",
   "observability": { "enabled": true },
+  // The plan texts (src/texts.ts) are bundled as text.
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   // Local only (`pnpm dev`). Not 8787: the rig app itself serves there (PORT in .env).
   "dev": { "port": 8799 },
   // Not secrets. The secrets (PING_KEY, OPENAI_API_KEY) live in the host: `wrangler secret put`,
