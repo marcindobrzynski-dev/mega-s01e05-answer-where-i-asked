@@ -141,7 +141,10 @@ function oneLine(text: string): string {
 }
 
 // One POST to the reply address; the answer and the stopped line both leave this way.
-async function send(ping: PulseWork, deps: PulseDeps, text: string, what: string): Promise<PulseOutcome> {
+// `shown` closes the log line: the answer itself, so the recommendation can be read on the host.
+async function send(ping: PulseWork, deps: PulseDeps, text: string, what: string, shown?: string): Promise<PulseOutcome> {
+  const tail = shown ? ` | ${shown}` : '';
+
   let res: Response;
   try {
     res = await deps.fetch(ping.reply, {
@@ -150,14 +153,14 @@ async function send(ping: PulseWork, deps: PulseDeps, text: string, what: string
       body: JSON.stringify({ text }),
     });
   } catch {
-    return { status: 502, log: oneLine(`${what} not delivered: the reply address did not answer`) };
+    return { status: 502, log: oneLine(`${what} not delivered: the reply address did not answer${tail}`) };
   }
   
   const said = `reply address said ${res.status}`;
   // 409: the ping was answered already, so the course has its answer.
-  if (res.status === 202 || res.status === 409) return { status: 200, log: oneLine(`${what}, ${said}`) };
+  if (res.status === 202 || res.status === 409) return { status: 200, log: oneLine(`${what}, ${said}${tail}`) };
 
-  return { status: 502, log: oneLine(`${what} not delivered: ${said}`) };
+  return { status: 502, log: oneLine(`${what} not delivered: ${said}${tail}`) };
 }
 
 // The stopped line goes to the course; the detail stays in the log.
@@ -204,7 +207,8 @@ export async function runPulse(ping: PulseWork, deps: PulseDeps): Promise<PulseO
 
   const answer = composeAnswer(phrase, result.issue, result.recommendation);
   const failed = checkAnswer(answer, phrase, openSet.map((issue) => issue.number));
-  if (failed) return stop(ping, deps, failed);
+  // The answer that failed is the detail: it stays in the log, the course gets only the reason.
+  if (failed) return stop(ping, deps, failed, answer);
 
-  return send(ping, deps, answer, `answered #${result.issue}`);
+  return send(ping, deps, answer, `answered #${result.issue}`, answer);
 }

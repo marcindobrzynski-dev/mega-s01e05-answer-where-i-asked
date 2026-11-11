@@ -656,6 +656,34 @@ describe('runPulse', () => {
         ['POST', REPLY],
       ]);
     });
+
+    it('puts the answer it sent into the log, delivered or not', async () => {
+      // The log is the only place the recommendation can be read after the ping is gone.
+      const cases: ReplyBehaviour[] = [{ status: 202 }, { status: 409 }, { status: 404 }, 'throws'];
+      for (const reply of cases) {
+        const net = fakeFetch({ reply });
+        const out = await runPulse(ping(), { fetch: net.fetch, askModel: fakeModel().askModel });
+        expect(out.log).toContain('"low tide" · #12: Fix the dropped row.');
+        expectLog(out);
+      }
+    });
+
+    it('keeps the log on one line when the recommendation has line breaks', async () => {
+      const net = fakeFetch();
+      const model = fakeModel({ kind: 'pick', issue: 12, recommendation: 'Fix the dropped row.\r\nThen add a test.' });
+      const out = await runPulse(ping(), { fetch: net.fetch, askModel: model.askModel });
+      expect(out.log).toContain('Fix the dropped row. Then add a test.');
+      expectLog(out);
+    });
+
+    it('puts an answer that failed the check into the log, not into the stopped line', async () => {
+      const net = fakeFetch();
+      const model = fakeModel({ kind: 'pick', issue: 12, recommendation: 'Reopen #3 first.' });
+      const out = await runPulse(ping(), { fetch: net.fetch, askModel: model.askModel });
+      expect(sentText(net.seen)).toBe('pulse stopped: the answer names #3, which is not open');
+      expect(out.log).toContain('"low tide" · #12: Reopen #3 first.');
+      expectLog(out);
+    });
   });
 
   describe('stopped line', () => {
