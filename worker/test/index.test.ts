@@ -18,6 +18,15 @@ const pulse = {
   tracker: 'https://course.test/rig/tracker/issues',
 };
 
+const testPing = {
+  kind: 'test',
+  issue: 12,
+  reply: 'https://course.test/rig/reply/abc',
+  files: {
+    'src/digest/read.ts': 'export {}'
+  }
+};
+
 function signed(body: unknown, over: { timestamp?: number; key?: Buffer } = {}): Request {
   const raw = JSON.stringify(body);
   const timestamp = over.timestamp ?? Math.floor(Date.now() / 1000);
@@ -79,9 +88,9 @@ describe('POST /', () => {
     expect((await worker.fetch(signed({ ...pulse, kind: 'deploy' }), env)).status).toBe(400);
   });
 
-  it('never answers 2xx to a signed ping while the agent is not there', async () => {
-    const res = await worker.fetch(signed(pulse), env);
-    expect(res.status).toBeGreaterThanOrEqual(500);
+  it('never answers 2xx to a signed test ping while the test writer is not there', async () => {
+    const res = await worker.fetch(signed(testPing), env);
+    expect(res.status).toBe(503);
   });
 
   it('404s other paths and 405s other methods', async () => {
@@ -116,12 +125,11 @@ describe('readPing', () => {
   });
 
   it('reads a test ping', () => {
-    const test = { kind: 'test', issue: 12, reply: pulse.reply, files: { 'src/digest/read.ts': 'export {}' } };
-    expect(readPing(test, env.COURSE_URL)).toEqual(test);
+    expect(readPing(testPing, env.COURSE_URL)).toEqual(testPing);
   });
 
   it('refuses a test ping with no issue number or with a file that is not text', () => {
-    const test = { kind: 'test', issue: 12, reply: pulse.reply, files: {} };
+    const test = { ...testPing, files: {} };
     expect(readPing({ ...test, issue: '12' }, env.COURSE_URL)).toBe('issue is not a number');
     expect(readPing({ ...test, files: { a: 1 } }, env.COURSE_URL)).toBe('a file is not text');
   });

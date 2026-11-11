@@ -6,6 +6,9 @@
 // 400 signed but not a ping we know · 5xx the work failed, send the ping again.
 
 import { verifyPing } from './verify.js';
+import { askModel } from './model.js';
+import { runPulse } from './pulse.js';
+import { PLAN_TEXTS } from './texts.js';
 
 export interface Env {
   OWNER_CODE: string;
@@ -125,7 +128,18 @@ export default {
       return line(400, ping);
     }
 
-    // The agents come with issues #2–#4. Until then the work cannot finish: 5xx, never a 200.
+    if (ping.kind === "pulse") {
+      const outFetch: typeof fetch = (input, init) => fetch(input, init);
+      const outcome = await runPulse(ping, {
+        fetch: outFetch,
+        askModel: (openSet) => askModel({ fetch: outFetch, apiKey: env.OPENAI_API_KEY }, PLAN_TEXTS, openSet)
+      });
+
+      console.log(`ping ${request.headers.get('webhook-id')}: pulse, ${outcome.log}`);
+      return line(outcome.status, outcome.log);
+    }
+
+    // The test writer comes with issue #4. Until then its work cannot finish: 5xx, never a 200.
     console.log(`ping ${request.headers.get('webhook-id')}: ${ping.kind}, no agent for it yet`);
     return line(503, `the ${ping.kind} agent is not on this host yet`);
   },
