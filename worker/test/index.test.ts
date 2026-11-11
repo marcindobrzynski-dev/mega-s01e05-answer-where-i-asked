@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker, { agentsFile, isCourseAddress, readPing, type Env } from '../src/index.js';
+import { RESPONSES_URL } from '../src/model.js';
 
 const KEY_BYTES = Buffer.from('a made-up ping key for the tests');
 const env: Env = {
@@ -23,9 +24,88 @@ const testPing = {
   issue: 12,
   reply: 'https://course.test/rig/reply/abc',
   files: {
-    'src/digest/read.ts': 'export {}'
-  }
+    'src/digest/read.ts': 'export {}',
+  },
 };
+
+// What the test ping's network looks like, made up: the tracker's issue, the model's answer, the
+// reply address. No real network: `stubNetwork` replaces the global `fetch` index.ts wraps.
+
+const TRACKER_ISSUE = 'https://course.test/rig/tracker/issues/12';
+/** A text only the test's source carries: it must reach the reply address and the log, never the HTTP body. */
+const SOURCE_MARK = 'keeps-the-row-with-a-dash-owner';
+
+const TEST_ANSWER = {
+  path: 'test/digest-dash-owner.test.ts',
+  test: [
+    "import { describe, expect, it } from 'vitest';",
+    "import { readNight } from '../src/digest/read.js';",
+    '',
+    `describe('${SOURCE_MARK}', () => {`,
+    "  it('reads a night', () => {",
+    '    expect(readNight).toBeDefined();',
+    '  });',
+    '});',
+    '',
+  ].join('\n'),
+  red: 'expect(jobs).toHaveLength(6) fails: received 5',
+};
+
+const trackerIssue = {
+  number: 12,
+  title: 'Digest prints null instead of — for a missing owner',
+  state: 'open',
+  labels: ['bug'],
+  by: 'rook',
+  body: 'The digest shows 5 jobs, the run log has 6.',
+  comments: [],
+};
+
+/** A completed Responses API body whose text is the given JSON. */
+function modelResponse(value: unknown): Record<string, unknown> {
+  return {
+    status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(value) }] }],
+  };
+}
+
+interface SeenRequest {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: unknown;
+}
+
+/** Replaces the global `fetch`: tracker → the issue, model → the test, reply address → 202. */
+function stubNetwork(opts: { tracker?: 'throws' } = {}): SeenRequest[] {
+  const seen: SeenRequest[] = [];
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      const raw = typeof init?.body === 'string' ? init.body : undefined;
+      seen.push({
+        url,
+        method,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: raw === undefined ? undefined : JSON.parse(raw),
+      });
+
+      if (url === TRACKER_ISSUE && method === 'GET') {
+        if (opts.tracker === 'throws') throw new TypeError('fetch failed');
+        return Response.json(trackerIssue);
+      }
+      if (url === RESPONSES_URL && method === 'POST') return Response.json(modelResponse(TEST_ANSWER));
+      if (url === testPing.reply && method === 'POST') return new Response(null, { status: 202 });
+
+      return new Response('not here', { status: 404 });
+    }),
+  );
+
+  return seen;
+}
 
 function signed(body: unknown, over: { timestamp?: number; key?: Buffer } = {}): Request {
   const raw = JSON.stringify(body);
@@ -88,9 +168,50 @@ describe('POST /', () => {
     expect((await worker.fetch(signed({ ...pulse, kind: 'deploy' }), env)).status).toBe(400);
   });
 
-  it('never answers 2xx to a signed test ping while the test writer is not there', async () => {
-    const res = await worker.fetch(signed(testPing), env);
-    expect(res.status).toBe(503);
+  describe('a signed test ping', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it('sends the test to the reply address, answers 200, and keeps the test out of the HTTP body', async () => {
+      const seen = stubNetwork();
+      const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      const res = await worker.fetch(signed(testPing), env);
+
+      expect(res.status).toBe(200);
+      const body = await res.text();
+      expect(body).toBe(`sent ${TEST_ANSWER.path}, reply address said 202 | red: ${TEST_ANSWER.red}\n`);
+      expect(body).not.toContain(SOURCE_MARK);
+
+      expect(seen.map((req) => `${req.method} ${req.url}`)).toEqual([
+        `GET ${TRACKER_ISSUE}`,
+        `POST ${RESPONSES_URL}`,
+        `POST ${testPing.reply}`,
+      ]);
+      expect(seen[1]?.headers.authorization).toBe(`Bearer ${env.OPENAI_API_KEY}`);
+      expect(seen[2]?.body).toEqual(TEST_ANSWER);
+
+      // Two log lines: the outcome, then the whole test for calibration.
+      const lines = logged.mock.calls.map((call) => String(call[0]));
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toBe(`ping msg_1: test, sent ${TEST_ANSWER.path}, reply address said 202 | red: ${TEST_ANSWER.red}`);
+      expect(lines[0]).not.toContain(SOURCE_MARK);
+      expect(lines[1]).toBe(`ping msg_1: test file ${TEST_ANSWER.path}\n${TEST_ANSWER.test}`);
+    });
+
+    it('answers 502 and sends nothing when the tracker does not answer', async () => {
+      const seen = stubNetwork({ tracker: 'throws' });
+      const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      const res = await worker.fetch(signed(testPing), env);
+
+      expect(res.status).toBe(502);
+      expect(seen.map((req) => `${req.method} ${req.url}`)).toEqual([`GET ${TRACKER_ISSUE}`]);
+      // No test was sent, so there is no second log line.
+      expect(logged.mock.calls).toHaveLength(1);
+    });
   });
 
   it('404s other paths and 405s other methods', async () => {

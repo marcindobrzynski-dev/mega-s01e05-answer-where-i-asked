@@ -8,7 +8,9 @@
 import { verifyPing } from './verify.js';
 import { askModel } from './pulse-model.js';
 import { runPulse } from './pulse.js';
-import { PLAN_TEXTS } from './texts.js';
+import { EXISTING_TESTS, PLAN_TEXTS } from './texts.js';
+import { runTestWriter } from './test-writer.js';
+import { askTestModel } from './test-writer-model.js';
 
 export interface Env {
   OWNER_CODE: string;
@@ -121,26 +123,40 @@ export default {
     } catch {
       return line(400, 'body is not JSON');
     }
-    
+
+    const id = request.headers.get('webhook-id');
     const ping = readPing(body, env.COURSE_URL);
     if (typeof ping === 'string') {
-      console.log(`ping ${request.headers.get('webhook-id')} not understood: ${ping}`);
+      console.log(`ping ${id} not understood: ${ping}`);
       return line(400, ping);
     }
 
-    if (ping.kind === "pulse") {
-      const outFetch: typeof fetch = (input, init) => fetch(input, init);
+    // Wrapped: a bare `fetch` kept on an object may lose its `this` on the host.
+    const outFetch: typeof fetch = (input, init) => fetch(input, init);
+
+    if (ping.kind === 'pulse') {
       const outcome = await runPulse(ping, {
         fetch: outFetch,
-        askModel: (openSet) => askModel({ fetch: outFetch, apiKey: env.OPENAI_API_KEY }, PLAN_TEXTS, openSet)
+        askModel: (openSet) => askModel({ fetch: outFetch, apiKey: env.OPENAI_API_KEY }, PLAN_TEXTS, openSet),
       });
 
-      console.log(`ping ${request.headers.get('webhook-id')}: pulse, ${outcome.log}`);
+      console.log(`ping ${id}: pulse, ${outcome.log}`);
       return line(outcome.status, outcome.log);
     }
 
-    // The test writer comes with issue #4. Until then its work cannot finish: 5xx, never a 200.
-    console.log(`ping ${request.headers.get('webhook-id')}: ${ping.kind}, no agent for it yet`);
-    return line(503, `the ${ping.kind} agent is not on this host yet`);
+    // Not a pulse, so a test ping: `readPing` lets no other kind through.
+    const outcome = await runTestWriter(ping, {
+      fetch: outFetch,
+      courseUrl: env.COURSE_URL,
+      existingTests: EXISTING_TESTS,
+      askModel: (inputTestWriter) => askTestModel({ fetch: outFetch, apiKey: env.OPENAI_API_KEY }, inputTestWriter),
+    });
+
+    console.log(`ping ${id}: test, ${outcome.log}`);
+    // The whole test goes to the host's log only: calibration reads it there (issue #4).
+    // It is never part of the HTTP body the course gets back.
+    if (outcome.test) console.log(`ping ${id}: test file ${outcome.test.path}\n${outcome.test.test}`);
+
+    return line(outcome.status, outcome.log);
   },
 } satisfies ExportedHandler<Env>;
