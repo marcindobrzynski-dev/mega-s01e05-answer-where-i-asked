@@ -6,7 +6,7 @@
 // 400 signed but not a ping we know · 5xx the work failed, send the ping again.
 
 import { verifyPing } from './verify.js';
-import { askModel } from './model.js';
+import { askModel } from './pulse-model.js';
 import { runPulse } from './pulse.js';
 import { PLAN_TEXTS } from './texts.js';
 

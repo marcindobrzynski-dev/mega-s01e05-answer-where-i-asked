@@ -7,7 +7,7 @@ import heartbeat from '../../docs/plans/done/2026-10-12-heartbeat.md?raw';
 import statusBoard from '../../docs/plans/done/2026-10-19-status-board.md?raw';
 import morningDigest from '../../docs/plans/done/2026-10-29-morning-digest.md?raw';
 
-import type { PlanTexts } from './model.js';
+import type { PlanTexts } from './pulse-model.js';
 
 export const PLAN_TEXTS: PlanTexts = {
   plan,
