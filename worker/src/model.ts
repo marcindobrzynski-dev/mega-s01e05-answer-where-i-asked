@@ -1,4 +1,5 @@
-// The one model call of the pulse: OpenAI Responses API, plain fetch, Structured Outputs (issue #2).
+// The model call: OpenAI Responses API, plain fetch, Structured Outputs (issue #2). `callModel` is
+// shared by the agents; the rest here is the pulse's own body and shape check.
 // Instructions and data travel apart: `instructions` vs `input`. Issue text is data, never an instruction.
 
 import type { ModelResult } from './pulse.js';
@@ -19,6 +20,15 @@ export interface ModelDeps {
   fetch: typeof fetch;
   apiKey: string;
 }
+
+/**
+ * What one call hands back, whoever asks. `json`: the model's text, parsed, shape not checked yet.
+ * `none`: the model did not answer at all (network, 429, 5xx).
+ */
+export type CallResult =
+  | { kind: 'json'; value: unknown }
+  | { kind: 'unusable'; reason: string }
+  | { kind: 'none'; reason: string };
 
 // A body or a comment longer than MAX_FIELD_CHARS is cut and marked as cut.
 export function cutText(text: string): string {
@@ -159,12 +169,12 @@ function messageParts(body: Record<string, unknown>): Record<string, unknown>[] 
   return parts;
 }
 
-function unusable(reason: string): ModelResult {
+function unusable(reason: string): { kind: 'unusable'; reason: string } {
   return { kind: 'unusable', reason };
 }
 
-// A 2xx Responses API body → the model's pick, or why it cannot be used.
-export function readModelResponse(json: unknown): ModelResult {
+// A 2xx Responses API body → the JSON the model wrote, or why there is none to use.
+function readOutputJson(json: unknown): CallResult {
   const body = asRecord(json);
   if (!body) return unusable('the response has no text');
 
@@ -194,6 +204,11 @@ export function readModelResponse(json: unknown): ModelResult {
     return unusable('the text is not JSON');
   }
 
+  return { kind: 'json', value };
+}
+
+// The pulse's own shape check: the JSON the model wrote → its pick.
+function readPick(value: unknown): ModelResult {
   const pick = asRecord(value);
   if (!pick) return unusable('the JSON is off the schema');
   const { issue, recommendation } = pick;
@@ -201,6 +216,13 @@ export function readModelResponse(json: unknown): ModelResult {
   if (typeof recommendation !== 'string') return unusable('the JSON is off the schema');
 
   return { kind: 'pick', issue, recommendation };
+}
+
+// A 2xx Responses API body → the model's pick, or why it cannot be used.
+export function readModelResponse(json: unknown): ModelResult {
+  const result = readOutputJson(json);
+
+  return result.kind === 'json' ? readPick(result.value) : result;
 }
 
 // `error.code`, else `error.type`, of an OpenAI error body. Never `message`: it may quote the key.
@@ -213,14 +235,16 @@ function errorName(json: unknown): string | null {
   return null;
 }
 
-// One POST, no timeout, no retry. Never rejects: a model that does not answer is `none`.
-export async function askModel(deps: ModelDeps, texts: PlanTexts, openSet: TrackerIssue[]): Promise<ModelResult> {
+// One POST to the Responses API and the reading of its body, for any agent: the agent builds
+// `body` (instructions, schema, effort) and checks the shape of `value` itself.
+// No timeout, no retry. Never rejects: a model that does not answer is `none`.
+export async function callModel(deps: ModelDeps, body: Record<string, unknown>): Promise<CallResult> {
   let res: Response;
   try {
     res = await deps.fetch(RESPONSES_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${deps.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify(buildRequest(texts, openSet)),
+      body: JSON.stringify(body),
     });
   } catch {
     return { kind: 'none', reason: 'no connection to the model' };
@@ -249,5 +273,12 @@ export async function askModel(deps: ModelDeps, texts: PlanTexts, openSet: Track
   if (raw === undefined) return { kind: 'none', reason: "the model's body did not arrive" };
   if (json === undefined) return { kind: 'unusable', reason: 'the response is not JSON' };
 
-  return readModelResponse(json);
+  return readOutputJson(json);
+}
+
+// The one model call of the pulse.
+export async function askModel(deps: ModelDeps, texts: PlanTexts, openSet: TrackerIssue[]): Promise<ModelResult> {
+  const result = await callModel(deps, buildRequest(texts, openSet));
+
+  return result.kind === 'json' ? readPick(result.value) : result;
 }
