@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue 001 — diagram sekwencji Workera</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #d9d6cd;
+    --accent: #b4532a; --accent-soft: #f6e4da; --ok: #2f7d4f; --bad: #b3261e; --warn: #9a6a00;
+    --code: #f1efe8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --panel: #1f1f23; --ink: #ecebe6; --muted: #a09f99; --line: #3a3a40;
+      --accent: #e58a5c; --accent-soft: #3a2a22; --ok: #6fcf97; --bad: #ff8a80; --warn: #e5b84d;
+      --code: #2a2a2f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 34px 0 10px; }
+  p.lead { color: var(--muted); margin: 0 0 18px; }
+  code, pre { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .diagram { overflow-x: auto; }
+  svg { display: block; min-width: 980px; width: 100%; height: auto; }
+  .stepper { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .stepper .count { color: var(--muted); min-width: 90px; }
+  .explain { margin-top: 12px; padding: 12px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; min-height: 66px; }
+  .explain b { display: block; margin-bottom: 2px; }
+  .explain .where { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  /* svg parts */
+  .life { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 5 5; }
+  .head rect { fill: var(--panel); stroke: var(--ink); stroke-width: 1.2; }
+  .head text { fill: var(--ink); font-size: 12.5px; font-weight: 600; text-anchor: middle; }
+  .head text.file { fill: var(--muted); font-weight: 400; font-size: 11px; }
+  .msg line, .msg path { stroke: var(--ink); stroke-width: 1.4; fill: none; }
+  .msg.ret line { stroke-dasharray: 6 4; }
+  .msg text { fill: var(--ink); font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
+  .msg { opacity: .28; cursor: pointer; transition: opacity .15s; }
+  .msg.seen { opacity: .75; }
+  .msg.now { opacity: 1; }
+  .msg.now line, .msg.now path { stroke: var(--accent); stroke-width: 2.2; }
+  .msg.now text { fill: var(--accent); font-weight: 700; }
+  .msg.s-ok.now text { fill: var(--ok); } .msg.s-bad.now text { fill: var(--bad); } .msg.s-warn.now text { fill: var(--warn); }
+  .msg path.arrowhead { fill: var(--ink); stroke: none; } .msg.now path.arrowhead { fill: var(--accent); stroke: none; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .cmd { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; margin: 8px 0; }
+  .cmd pre { margin: 0; background: var(--code); padding: 9px 12px; border-radius: 8px; overflow-x: auto; white-space: pre; }
+  .cmd .expect { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin: -2px 0 6px 2px; }
+  .st { font-weight: 700; } .st.ok { color: var(--ok); } .st.bad { color: var(--bad); } .st.warn { color: var(--warn); }
+  .note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Issue 001 — jak kod Workera rozmawia ze sobą</h1>
+  <p class="lead">Diagram sekwencji UML dla tego, co już istnieje w <code>worker/</code>: plik agentów oraz
+    sprawdzenie pingu. Agentów (pulse, test writer) jeszcze nie ma — poprawny ping kończy się na <code>503</code>.
+    Wybierz scenariusz, potem przechodź krok po kroku (przyciski, strzałki ← → albo kliknięcie w komunikat).</p>
+
+  <div class="tabs" id="tabs"></div>
+  <div class="card">
+    <div class="diagram"><svg id="svg" role="img" aria-label="Diagram sekwencji"></svg></div>
+    <div class="stepper">
+      <button id="prev">← Wstecz</button>
+      <button id="next">Dalej →</button>
+      <span class="count" id="count"></span>
+      <span class="note">Linia ciągła = wywołanie, przerywana = wartość zwrócona.</span>
+    </div>
+    <div class="explain" id="explain"></div>
+  </div>
+
+  <h2>Kto jest kim na diagramie</h2>
+  <div class="card">
+    <table>
+      <tr><th>Uczestnik</th><th>Plik</th><th>Za co odpowiada</th></tr>
+      <tr><td>Kurs</td><td>—</td><td>Recenzent kursu: pobiera plik agentów i wysyła podpisane pingi.</td></tr>
+      <tr><td><code>fetch()</code></td><td><code>src/index.ts</code></td><td>Wejście Workera. Routing po ścieżce i metodzie, decyzja o statusie HTTP.</td></tr>
+      <tr><td><code>agentsFile()</code></td><td><code>src/index.ts</code></td><td>Buduje treść <code>/.well-known/mega-pulse.json</code> (owner + <code>may</code>).</td></tr>
+      <tr><td><code>verifyPing()</code></td><td><code>src/verify.ts</code></td><td>Czysta funkcja (ang. <i>pure</i> — bez efektów ubocznych): klucz, nagłówki, czas, podpis.</td></tr>
+      <tr><td><code>crypto.subtle</code></td><td>runtime Workers</td><td>Web Crypto: HMAC-SHA256, porównanie w stałym czasie (ang. <i>constant time</i>).</td></tr>
+      <tr><td><code>readPing()</code></td><td><code>src/index.ts</code></td><td>Zamienia podpisane body w znany typ pingu albo zwraca powód odmowy.</td></tr>
+      <tr><td><code>isCourseAddress()</code></td><td><code>src/index.ts</code></td><td>Sprawdza, czy adres ma origin kursu (https + ten sam host).</td></tr>
+    </table>
+  </div>
+
+  <h2>Komendy do sprawdzenia</h2>
+  <p class="note">Wszystkie uruchamiaj w katalogu <code>starter/rig/worker</code>. Jeśli powłoka nie widzi <code>pnpm</code>,
+    dodaj do PATH: <code>C:\Users\marci\AppData\Local\pnpm\bin</code>.</p>
+  <div class="card" id="cmds"></div>
+
+  <h2>Statusy, które Worker zwraca dziś</h2>
+  <div class="card">
+    <table>
+      <tr><th>Status</th><th>Kiedy</th><th>Co zrobi kurs</th></tr>
+      <tr><td class="st ok">200</td><td><code>GET /.well-known/mega-pulse.json</code></td><td>Czyta owner i <code>may</code>.</td></tr>
+      <tr><td class="st bad">401</td><td>Brak nagłówków, zły podpis, zmienione body, znacznik czasu poza ±5 min, brak klucza na hoście</td><td>Nic nie zostaje obudzone.</td></tr>
+      <tr><td class="st bad">400</td><td>Podpis dobry, ale body to nie JSON, nieznany <code>kind</code>, <code>reply</code>/<code>tracker</code> spoza kursu</td><td>Ponowienie nic nie zmieni.</td></tr>
+      <tr><td class="st warn">503</td><td>Podpis dobry, ping zrozumiały, ale agenta jeszcze nie ma (issues 002–004)</td><td>Wyśle ping ponownie (to samo id).</td></tr>
+      <tr><td class="st bad">404 / 405</td><td>Inna ścieżka / inna metoda</td><td>—</td></tr>
+    </table>
+  </div>
+</main>
+
+<script>
+const P = [
+  { id: 'course', name: 'Kurs', file: 'recenzent' },
+  { id: 'fetch', name: 'fetch()', file: 'index.ts' },
+  { id: 'agents', name: 'agentsFile()', file: 'index.ts' },
+  { id: 'verify', name: 'verifyPing()', file: 'verify.ts' },
+  { id: 'crypto', name: 'crypto.subtle', file: 'Web Crypto' },
+  { id: 'read', name: 'readPing()', file: 'index.ts' },
+  { id: 'addr', name: 'isCourseAddress()', file: 'index.ts' },
+];
+
+// Wspólny początek każdego scenariusza POST.
+const post = (extra) => [
+  { f: 'course', t: 'fetch', l: 'POST /  + webhook-id, -timestamp, -signature',
+    h: 'Kurs wysyła ping', d: 'Trzy nagłówki Standard Webhooks i body w JSON. ' + extra, w: 'docs/course-api.md → „Pings”' },
+  { f: 'fetch', t: 'fetch', l: 'rawBody = await request.text()',
+    h: 'Body czytane jako surowy tekst', d: 'Podpis liczy się z dokładnych bajtów body. Dlatego JSON.parse jest dopiero po weryfikacji — sparsowanie i ponowne zapisanie mogłoby zmienić tekst.', w: 'index.ts → fetch()' },
+  { f: 'fetch', t: 'verify', l: 'verifyPing({ id, timestamp, signature, rawBody, pingKey, nowSeconds })',
+    h: 'Wszystko, czego weryfikacja potrzebuje, wchodzi argumentami', d: 'Klucz (env.PING_KEY) i zegar (Date.now) podaje fetch(). Dzięki temu verifyPing() jest czystą funkcją i testy mogą ustawić dowolny czas.', w: 'verify.ts → verifyPing()' },
+  { f: 'verify', t: 'verify', l: 'klucz: whsec_… → base64 → bajty',
+    h: 'Dekodowanie klucza', d: 'Klucz HMAC to bajty po prefiksie whsec_, zdekodowane z base64. Brak klucza lub zły format → { ok: false, reason: "no ping key on the host" }, czyli 401 dla każdego pingu.', w: 'verify.ts → fromBase64()' },
+];
+
+const S = [
+  { name: 'GET pliku agentów → 200', steps: [
+    { f: 'course', t: 'fetch', l: 'GET /.well-known/mega-pulse.json',
+      h: 'Kurs pyta, co wolno agentom', d: 'Pierwszy claim-challenge czyta ten plik z hosta. Bez podpisu — plik jest publiczny.', w: 'docs/course-api.md → „The agents\' file”' },
+    { f: 'fetch', t: 'agents', l: 'agentsFile(env.OWNER_CODE)',
+      h: 'Owner code z konfiguracji', d: 'OWNER_CODE to zwykła zmienna w wrangler.jsonc (vars), nie sekret: i tak jest widoczna publicznie w tym pliku.', w: 'index.ts → agentsFile()' },
+    { f: 'agents', t: 'fetch', r: 1, l: '{ owner, agents: { pulse, test-writer } }',
+      h: 'Dwóch agentów, po jednej akcji', d: 'pulse: wakes "pulse", may ["answer"]. test-writer: wakes "test", may ["test"]. Żadnej akcji na trackerze (comment, label, close, reopen).', w: 'index.ts → agentsFile()' },
+    { f: 'fetch', t: 'course', r: 1, l: '200  application/json', s: 'ok',
+      h: 'Odpowiedź', d: 'Response.json(...) ustawia nagłówek content-type. Inna metoda niż GET/HEAD dostaje 405.', w: 'index.ts → fetch()' },
+  ]},
+  { name: 'POST: zły podpis → 401', steps: [
+    ...post('W tym scenariuszu podpis nie pasuje (inny klucz albo zmienione body).'),
+    { f: 'verify', t: 'verify', l: 'nagłówki są? timestamp = same cyfry, |now − ts| ≤ 300 s?',
+      h: 'Tanie sprawdzenia najpierw', d: 'Brak nagłówka → "missing header". Znacznik czasu, który nie jest liczbą całkowitą → "bad timestamp". Starszy niż 5 min → "timestamp too old"; z przyszłości o ponad 5 min → "timestamp in the future". Każdy z nich kończy się tu, bez liczenia HMAC.', w: 'verify.ts → verifyPing()' },
+    { f: 'verify', t: 'crypto', l: 'importKey("raw", keyBytes, HMAC/SHA-256, ["verify"])',
+      h: 'Klucz dla Web Crypto', d: 'Bajty klucza zamieniane na CryptoKey z jednym uprawnieniem: verify. Worker nigdy niczego nie podpisuje.', w: 'verify.ts → verifyPing()' },
+    { f: 'crypto', t: 'verify', r: 1, l: 'CryptoKey', h: 'Klucz gotowy', d: '', w: '' },
+    { f: 'verify', t: 'crypto', l: 'verify("HMAC", key, mac, "<id>.<ts>.<rawBody>")  ×  każdy „v1,…”',
+      h: 'Sprawdzenie każdego podpisu z nagłówka', d: 'Nagłówek może nieść kilka podpisów po spacji (godzina po zmianie klucza). Pętla bierze tylko wersję v1; wpis, który nie jest base64, jest pomijany. subtle.verify porównuje w stałym czasie — zwykłe porównanie napisów zdradzałoby, ile znaków się zgadza (timing attack).', w: 'verify.ts → pętla for' },
+    { f: 'crypto', t: 'verify', r: 1, l: 'false', s: 'bad', h: 'Żaden podpis nie pasuje', d: '', w: '' },
+    { f: 'verify', t: 'fetch', r: 1, l: '{ ok: false, reason: "no signature matches" }', s: 'bad',
+      h: 'Wynik zamiast wyjątku', d: 'verifyPing() nie rzuca wyjątków (ang. throw): zwraca wynik z powodem. fetch() decyduje o statusie.', w: 'verify.ts → typ Verified' },
+    { f: 'fetch', t: 'fetch', l: 'console.log("ping refused: <reason>")',
+      h: 'Powód tylko w logach', d: 'Dokładny powód trafia do logów Workera (observability), a nie do odpowiedzi — obcy nadawca nie dowiaduje się, co poprawić.', w: 'index.ts → fetch()' },
+    { f: 'fetch', t: 'course', r: 1, l: '401  not a ping from the course', s: 'bad',
+      h: 'Nic nie zostało obudzone', d: 'Body nie zostało nawet sparsowane. To jest „Done when” z issue 001.', w: 'index.ts → fetch()' },
+  ]},
+  { name: 'POST: podpis OK, obcy adres → 400', steps: [
+    ...post('W tym scenariuszu podpis jest dobry, ale reply wskazuje poza kurs.'),
+    { f: 'verify', t: 'crypto', l: 'importKey(…) → verify(…)',
+      h: 'Podpis sprawdzony', d: 'Te same kroki co w scenariuszu z 401, tym razem z wynikiem true.', w: 'verify.ts' },
+    { f: 'crypto', t: 'verify', r: 1, l: 'true', s: 'ok', h: 'Podpis pasuje', d: '', w: '' },
+    { f: 'verify', t: 'fetch', r: 1, l: '{ ok: true }', s: 'ok', h: 'Ping jest od kursu', d: 'Dopiero teraz wolno ufać body na tyle, żeby je parsować.', w: '' },
+    { f: 'fetch', t: 'fetch', l: 'body = JSON.parse(rawBody)',
+      h: 'Parsowanie po weryfikacji', d: 'Body, które nie jest JSON-em → 400 "body is not JSON".', w: 'index.ts → fetch()' },
+    { f: 'fetch', t: 'read', l: 'readPing(body, env.COURSE_URL)',
+      h: 'Od „unknown” do typu Ping', d: 'readPing() dostaje wartość typu unknown i zwraca albo PulsePing / TestPing, albo napis z powodem. Reszta kodu nie musi już sprawdzać pól.', w: 'index.ts → readPing()' },
+    { f: 'read', t: 'addr', l: 'isCourseAddress(body.reply, courseUrl)',
+      h: 'Dokąd wolno odpowiedzieć', d: 'Porównanie po origin (https + host), nie przez startsWith: „https://hq.mega.dev.example.com” zaczyna się od adresu kursu, a jest obcym hostem.', w: 'index.ts → isCourseAddress()' },
+    { f: 'addr', t: 'read', r: 1, l: 'false', s: 'bad', h: 'To nie adres kursu', d: '', w: '' },
+    { f: 'read', t: 'fetch', r: 1, l: '"reply is not a course address"', s: 'bad',
+      h: 'Powód jako napis', d: 'Inne możliwe powody: "unknown kind", "tracker is not a course address", "issue is not a number", "a file is not text".', w: 'index.ts → readPing()' },
+    { f: 'fetch', t: 'course', r: 1, l: '400  reply is not a course address', s: 'bad',
+      h: '400, nie 5xx', d: 'Po 5xx kurs wysłałby ten sam ping jeszcze raz, a on dalej byłby zły. 400 mówi: nie ponawiaj.', w: 'index.ts → fetch()' },
+  ]},
+  { name: 'POST: poprawny ping → 503 (na razie)', steps: [
+    ...post('W tym scenariuszu wszystko się zgadza.'),
+    { f: 'verify', t: 'crypto', l: 'importKey(…) → verify(…)', h: 'Podpis sprawdzony', d: 'Jak wyżej.', w: 'verify.ts' },
+    { f: 'crypto', t: 'verify', r: 1, l: 'true', s: 'ok', h: 'Podpis pasuje', d: '', w: '' },
+    { f: 'verify', t: 'fetch', r: 1, l: '{ ok: true }', s: 'ok', h: 'Ping jest od kursu', d: '', w: '' },
+    { f: 'fetch', t: 'read', l: 'readPing(JSON.parse(rawBody), env.COURSE_URL)', h: 'Odczyt pingu', d: 'Routing po polu kind: "pulse" albo "test".', w: 'index.ts → readPing()' },
+    { f: 'read', t: 'addr', l: 'isCourseAddress(reply) · isCourseAddress(tracker)',
+      h: 'Oba adresy muszą należeć do kursu', d: 'Ping pulse niesie reply i tracker. Ping test niesie reply, numer issue i pliki (files) — tam sprawdzane jest też, czy każdy plik to tekst.', w: 'index.ts → readPing()' },
+    { f: 'addr', t: 'read', r: 1, l: 'true, true', s: 'ok', h: 'Adresy w porządku', d: '', w: '' },
+    { f: 'read', t: 'fetch', r: 1, l: '{ kind: "pulse", phrase, reply, tracker }', s: 'ok',
+      h: 'Znany, sprawdzony ping', d: 'Tu wejdą agenci: pulse.ts (issues 002, 003) i test-writer.ts (issue 004), a za nimi model.ts.', w: 'index.ts → typ Ping' },
+    { f: 'fetch', t: 'course', r: 1, l: '503  the pulse agent is not on this host yet', s: 'warn',
+      h: 'Praca nie jest skończona, więc nie 200', d: 'Zasada z decyzji: 200 tylko wtedy, gdy praca jest zrobiona. Dopóki agenta nie ma, 5xx — kurs ponowi ping z tym samym id.', w: 'index.ts → fetch()' },
+  ]},
+];
+
+const CMDS = [
+  ['pnpm test', 'Testy jednostkowe (vitest): 28 zielonych — verify.test.ts i index.test.ts.'],
+  ['pnpm typecheck', 'tsc --noEmit: bez błędów.'],
+  ['pnpm dev', 'Uruchamia Workera lokalnie (wrangler dev) na http://127.0.0.1:8799. Zostaw to okno otwarte; kolejne komendy wpisuj w drugim.'],
+  ['curl.exe -i http://127.0.0.1:8799/.well-known/mega-pulse.json', '<span class="st ok">200</span> — JSON z owner i dwiema listami may. (W PowerShell 5.1 samo „curl” to alias innej komendy, stąd curl.exe.)'],
+  ['curl.exe -i -X POST -d "{}" http://127.0.0.1:8799/', '<span class="st bad">401</span> — brak nagłówków podpisu.'],
+  ['node scripts/ping.mjs pulse', '<span class="st warn">503</span> — podpis dobry, agenta pulse jeszcze nie ma.'],
+  ['node scripts/ping.mjs test', '<span class="st warn">503</span> — to samo dla pingu test (niesie src/digest/read.ts).'],
+  ['node scripts/ping.mjs pulse --old', '<span class="st bad">401</span> — znacznik czasu sprzed 400 s.'],
+  ['node scripts/ping.mjs pulse --tamper', '<span class="st bad">401</span> — body zmienione po podpisaniu.'],
+  ['node scripts/ping.mjs pulse --wrong-key', '<span class="st bad">401</span> — podpis innym kluczem.'],
+  ['node scripts/ping.mjs pulse --bad-reply', '<span class="st bad">400</span> — reply spoza kursu.'],
+  ['pnpm exec wrangler deploy --dry-run', 'Buduje paczkę bez wysyłania czegokolwiek na Cloudflare.'],
+];
+
+const NS = 'http://www.w3.org/2000/svg';
+const el = (n, a = {}, text) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; return e; };
+const W = 1120, COL = W / P.length, TOP = 62, ROW = 46;
+const x = (id) => COL * P.findIndex((p) => p.id === id) + COL / 2;
+
+let si = 0, step = 0;
+const svg = document.getElementById('svg');
+
+function draw() {
+  const steps = S[si].steps;
+  const H = TOP + steps.length * ROW + 30;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.replaceChildren();
+  for (const p of P) {
+    svg.append(el('line', { class: 'life', x1: x(p.id), y1: TOP - 10, x2: x(p.id), y2: H - 8 }));
+    const g = el('g', { class: 'head' });
+    g.append(el('rect', { x: x(p.id) - 70, y: 6, width: 140, height: 44, rx: 6 }));
+    g.append(el('text', { x: x(p.id), y: 25 }, p.name));
+    g.append(el('text', { class: 'file', x: x(p.id), y: 41 }, p.file));
+    svg.append(g);
+  }
+  steps.forEach((m, i) => {
+    const y = TOP + 26 + i * ROW;
+    const g = el('g', { class: `msg${m.r ? ' ret' : ''}${m.s ? ' s-' + m.s : ''}${i === step ? ' now' : i < step ? ' seen' : ''}` });
+    g.addEventListener('click', () => { step = i; draw(); });
+    const a = x(m.f), b = x(m.t);
+    if (m.f === m.t) {
+      g.append(el('path', { d: `M${a},${y - 12} h34 v16 h-28` }));
+      g.append(el('path', { class: 'arrowhead', d: `M${a},${y + 4} l9,-5 v10 z`, stroke: 'none' }));
+      const over = a + 42 + m.l.length * 7.3 > W - 6;
+      g.append(el('text', over ? { x: W - 6, y: y, 'text-anchor': 'end' } : { x: a + 42, y: y }, m.l));
+    } else {
+      const dir = b > a ? 1 : -1;
+      g.append(el('line', { x1: a, y1: y, x2: b - dir * 8, y2: y }));
+      g.append(el('path', { class: 'arrowhead', d: `M${b},${y} l${-dir * 10},-5 v10 z`, stroke: 'none' }));
+      const left = Math.min(a, b) + 10;
+      const over = left + m.l.length * 7.3 > W - 6;
+      g.append(el('text', over ? { x: W - 6, y: y - 7, 'text-anchor': 'end' } : { x: left, y: y - 7 }, m.l));
+    }
+    svg.append(g);
+  });
+  const m = steps[step];
+  document.getElementById('count').textContent = `Krok ${step + 1} z ${steps.length}`;
+  document.getElementById('explain').innerHTML =
+    `<b>${m.h}</b>${m.d || ''}${m.w ? `<div class="where">Gdzie: <code>${m.w}</code></div>` : ''}`;
+  document.getElementById('prev').disabled = step === 0;
+  document.getElementById('next').disabled = step === steps.length - 1;
+  [...document.getElementById('tabs').children].forEach((b, i) => b.setAttribute('aria-pressed', i === si));
+}
+
+S.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.textContent = s.name;
+  b.onclick = () => { si = i; step = 0; draw(); };
+  document.getElementById('tabs').append(b);
+});
+const go = (d) => { const n = step + d; if (n >= 0 && n < S[si].steps.length) { step = n; draw(); } };
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') go(1); if (e.key === 'ArrowLeft') go(-1); });
+
+const cmds = document.getElementById('cmds');
+for (const [c, expect] of CMDS) {
+  const row = document.createElement('div'); row.className = 'cmd';
+  const pre = document.createElement('pre'); pre.textContent = c;
+  const btn = document.createElement('button'); btn.textContent = 'Kopiuj';
+  btn.onclick = async () => { try { await navigator.clipboard.writeText(c); btn.textContent = 'Skopiowano'; } catch { btn.textContent = 'Zaznacz ręcznie'; } setTimeout(() => (btn.textContent = 'Kopiuj'), 1200); };
+  const ex = document.createElement('div'); ex.className = 'expect'; ex.innerHTML = '→ ' + expect;
+  row.append(pre, btn, ex); cmds.append(row);
+}
+draw();
+</script>
+</body>
+</html>
