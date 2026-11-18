@@ -1,0 +1,20 @@
+{
+  "name": "rig-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The host for rig's agents that wake alone: pulse and test-writer (plan: pulse, ADR 0005, 0006).",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.1",
+    "wrangler": "^4.160.0"
+  }
+}
